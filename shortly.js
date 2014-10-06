@@ -2,15 +2,16 @@ var express = require('express');
 var util = require('./lib/utility');
 var partials = require('express-partials');
 var bodyParser = require('body-parser');
-
-
+var bcrypt = require('bcrypt-nodejs');
 var db = require('./app/config');
 var Users = require('./app/collections/users');
 var User = require('./app/models/user');
 var Links = require('./app/collections/links');
 var Link = require('./app/models/link');
 var Click = require('./app/models/click');
-
+var User = require('./app/models/user');
+var cookieParser = require('cookie-parser');
+var session = require('express-session');
 var app = express();
 
 app.set('views', __dirname + '/views');
@@ -22,25 +23,98 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(__dirname + '/public'));
 
+// AUTHENICATION
+app.use(cookieParser('shhhh, very secret'));
+app.use(session());
 
-app.get('/', 
+app.get('/', util.checkSession,
 function(req, res) {
   res.render('index');
 });
 
-app.get('/create', 
+app.get('/create', util.checkSession,
 function(req, res) {
   res.render('index');
 });
 
-app.get('/links', 
+app.get('/login',
+function(req, res) {
+  res.render('login');
+});
+
+app.post('/login',
+function(req, res){
+  util.logThemIn(req.body.username, req.body.password, function(bool){
+   if (bool){
+      req.session.regenerate(function(){
+        req.session.user = req.body.username;
+        res.redirect('/');
+      });
+    } else {
+      res.redirect('/signup', {
+        errMessage: 'Sign in failed, would you like to register an account?'
+      });
+    }
+  });
+});
+
+app.get('/logout',
+function(req, res) {
+  res.render('index');
+});
+
+app.get('/signup',
+function(req, res) {
+  res.render('signup');
+});
+
+app.post('/signup',
+function(req, res) {
+  console.log("in the signup post route")
+  util.checkUserExists(req.body.username, function(bool){
+    console.log("inside check userexists")
+    if (bool){
+      console.log("username exists")
+      res.render('login',{
+        errMessage: 'username already exists'
+      });
+    } else {
+      console.log("the username doesn't exists, going to hash pass")
+      util.hashPass(req.body.password, function(hash){
+        var user = {
+          username: req.body.username,
+          hash: hash
+        };
+        console.log("password hashed, going to create user")
+        console.log(User)
+        Users.create(user).then(function(user){
+
+          console.log("password hashed, user created", user)
+          util.logThemIn(req.body.username, req.body.password, function(bool){
+            console.log("user created, going to regenerate session")
+            if (bool){
+              req.session.regenerate(function(){
+                req.session.user = req.body.username;
+                console.log("session regened, about to redirect...")
+                res.redirect('/');
+              });
+            }
+          });
+        });
+      });
+    }
+  });
+});
+
+
+app.get('/links', util.checkSession,
 function(req, res) {
   Links.reset().fetch().then(function(links) {
     res.send(200, links.models);
   });
 });
 
-app.post('/links', 
+app.post('/links', util.checkSession,
 function(req, res) {
   var uri = req.body.url;
 
@@ -86,7 +160,7 @@ function(req, res) {
 // If the short-code doesn't exist, send the user to '/'
 /************************************************************/
 
-app.get('/*', function(req, res) {
+app.get('/*',  function(req, res) {
   new Link({ code: req.params[0] }).fetch().then(function(link) {
     if (!link) {
       res.redirect('/');
