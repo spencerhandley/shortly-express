@@ -12,10 +12,12 @@ Shortly.LinksView = Backbone.View.extend({
   },
 
   addAll: function(){
+    console.log(this.collection)
     this.collection.forEach(this.addOne, this);
   },
 
   addOne: function(item){
+    console.log(item)
     var view = new Shortly.LinkView({ model: item });
     this.$el.append(view.render().el);
   }

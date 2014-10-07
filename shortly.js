@@ -12,7 +12,6 @@ var Click = require('./app/models/click');
 var User = require('./app/models/user');
 var cookieParser = require('cookie-parser');
 var session = require('express-session');
-
 var GitHubStrategy = require('passport-github').Strategy;
 var passport = require('passport');
 var app = express();
@@ -46,9 +45,14 @@ passport.use(new GitHubStrategy({
     callbackURL: "http://localhost:4568/auth/github/callback"
   },
   function(accessToken, refreshToken, profile, done) {
-    Users.create({ username: profile.username }).then(function (err, user) {
-      console.log("h4y")
-      done(null, profile);
+    util.checkUserExists(profile.username, function(bool){
+      if(bool){
+        done(null, profile);
+      } else {
+        Users.create({ username: profile.username, gitId: profile.id}).then(function (err, user) {
+          done(null, profile);
+        });
+      }
     });
   }
 ));
@@ -85,10 +89,12 @@ app.get('/auth/github/callback',
 
 app.post('/login',
 function(req, res){
-  util.logThemIn(req.body.username, req.body.password, function(bool){
+  util.logThemIn(req.body.username, req.body.password, function(bool, user){
    if (bool){
       req.session.regenerate(function(){
-        req.session.user = req.body.username;
+        req.session.user = {}
+        req.session.user.username = req.body.username;
+        req.session.user.id = user.id;
         res.redirect('/');
       });
     } else {
@@ -142,9 +148,19 @@ function(req, res) {
 
 app.get('/links',util.checkSession,
 function(req, res) {
-  Links.reset().fetch().then(function(links) {
-    res.send(200, links.models);
-  });
+  var userId = req.session.passport.user ? 'users.gitId' : 'users.id';
+  db.knex('urls')
+    .join('users', userId, '=','urls.userid')
+    .select('*')
+    .then(function(result){
+      console.log(result)
+      res.send(200, result)
+    });
+
+
+  // Links.reset().fetch().then(function(links) {
+  //   res.send(200, links.models);
+  // });
 });
 
 app.post('/links',util.checkSession,
@@ -165,16 +181,19 @@ function(req, res) {
           console.log('Error reading URL heading: ', err);
           return res.send(404);
         }
-
-
+        var userId = req.session.passport.user ? req.session.passport.user.id : req.session.user.id
+        console.log("userid for link",userId)
         var link = new Link({
           url: uri,
           title: title,
+          userid: userId,
           base_url: req.headers.origin
         });
 
         link.save().then(function(newLink) {
+          console.log("saved link", newLink)
           Links.add(newLink);
+          console.log("links collection", Links)
           res.send(200, newLink);
         });
       });
