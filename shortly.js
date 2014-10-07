@@ -12,6 +12,9 @@ var Click = require('./app/models/click');
 var User = require('./app/models/user');
 var cookieParser = require('cookie-parser');
 var session = require('express-session');
+
+var GitHubStrategy = require('passport-github').Strategy;
+var passport = require('passport');
 var app = express();
 
 app.set('views', __dirname + '/views');
@@ -26,13 +29,37 @@ app.use(express.static(__dirname + '/public'));
 // AUTHENICATION
 app.use(cookieParser('shhhh, very secret'));
 app.use(session());
+  app.use(passport.initialize());
+  app.use(passport.session());
+
+passport.serializeUser(function(user, done) {
+  done(null, user);
+});
+
+passport.deserializeUser(function(obj, done) {
+  done(null, obj);
+});
+
+passport.use(new GitHubStrategy({
+    clientID: "6765721661eed08e56fb",
+    clientSecret: "2fc62e4df485343574e9fdbf806bf1b155d0cf6a",
+    callbackURL: "http://localhost:4568/auth/github/callback"
+  },
+  function(accessToken, refreshToken, profile, done) {
+    Users.create({ username: profile.username }).then(function (err, user) {
+      console.log("h4y")
+      done(null, profile);
+    });
+  }
+));
+
 
 app.get('/', util.checkSession,
 function(req, res) {
   res.render('index');
 });
 
-app.get('/create', util.checkSession,
+app.get('/create',util.checkSession,
 function(req, res) {
   res.render('index');
 });
@@ -41,6 +68,20 @@ app.get('/login',
 function(req, res) {
   res.render('login');
 });
+
+app.get('/auth/github',
+function(req, res) {
+  passport.authenticate('github',function(req, res){
+    console.log("in callback")
+  })(req,res)
+});
+
+app.get('/auth/github/callback',
+  passport.authenticate('github', { failureRedirect: '/login' }),
+  function(req, res) {
+    console.log("back from oath")
+    res.redirect('/')
+  });
 
 app.post('/login',
 function(req, res){
@@ -60,7 +101,9 @@ function(req, res){
 
 app.get('/logout',
 function(req, res) {
-  res.render('index');
+  req.session.destroy(function(err){
+    res.redirect('/login');
+  })
 });
 
 app.get('/signup',
@@ -70,32 +113,22 @@ function(req, res) {
 
 app.post('/signup',
 function(req, res) {
-  console.log("in the signup post route")
   util.checkUserExists(req.body.username, function(bool){
-    console.log("inside check userexists")
     if (bool){
-      console.log("username exists")
       res.render('login',{
         errMessage: 'username already exists'
       });
     } else {
-      console.log("the username doesn't exists, going to hash pass")
       util.hashPass(req.body.password, function(hash){
         var user = {
           username: req.body.username,
           hash: hash
         };
-        console.log("password hashed, going to create user")
-        console.log(User)
         Users.create(user).then(function(user){
-
-          console.log("password hashed, user created", user)
           util.logThemIn(req.body.username, req.body.password, function(bool){
-            console.log("user created, going to regenerate session")
             if (bool){
               req.session.regenerate(function(){
                 req.session.user = req.body.username;
-                console.log("session regened, about to redirect...")
                 res.redirect('/');
               });
             }
@@ -107,14 +140,14 @@ function(req, res) {
 });
 
 
-app.get('/links', util.checkSession,
+app.get('/links',util.checkSession,
 function(req, res) {
   Links.reset().fetch().then(function(links) {
     res.send(200, links.models);
   });
 });
 
-app.post('/links', util.checkSession,
+app.post('/links',util.checkSession,
 function(req, res) {
   var uri = req.body.url;
 
@@ -132,6 +165,7 @@ function(req, res) {
           console.log('Error reading URL heading: ', err);
           return res.send(404);
         }
+
 
         var link = new Link({
           url: uri,
@@ -151,7 +185,6 @@ function(req, res) {
 /************************************************************/
 // Write your authentication routes here
 /************************************************************/
-
 
 
 /************************************************************/
